@@ -1,0 +1,29 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [106.7009, 10.7769]
+      },
+      "properties": {
+        "id": 1,
+        "name": "Saigon Center",
+        "category": "mall"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [106.7044, 10.7802]
+      },
+      "properties": {
+        "id": 2,
+        "name": "Notre-Dame Cathedral",
+        "category": "landmark"
+      }
+    }
+  ]
+}
