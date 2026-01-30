@@ -1,8 +1,12 @@
-import { useState } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, useMapEvents } from 'react-leaflet';
+import { useCallback, useState } from 'react';
+import { MapContainer, TileLayer, Marker, Popup, GeoJSON, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
-import { GeoJSON } from 'react-leaflet';
-import type { FeatureCollection } from 'geojson';
+
+import nearestPoint from '@turf/nearest-point';
+import distance from '@turf/distance';
+import { point } from '@turf/helpers';
+
+import type { Feature, FeatureCollection, Point } from 'geojson';
 import places from './data/places.json';
 
 type LatLng = {
@@ -10,26 +14,49 @@ type LatLng = {
   lng: number;
 };
 
-function ClickHandler({ onClick }: { onClick: (latlng: LatLng) => void }) {
+const markerIcon = L.icon({
+  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+  iconAnchor: [12, 41],
+});
+
+const ClickHandler = ({ onClick }: { onClick: (latlng: LatLng) => void }) => {
   useMapEvents({
-    click(e) {
+    click: e =>
       onClick({
         lat: e.latlng.lat,
         lng: e.latlng.lng,
-      });
-    },
+      }),
   });
 
   return null;
-}
+};
 
 export default function App() {
   const [selectedPoint, setSelectedPoint] = useState<LatLng | null>(null);
+  const [nearestFeature, setNearestFeature] = useState<Feature<Point> | null>(null);
+  const [distanceKm, setDistanceKm] = useState<number | null>(null);
+
+  const handleMapClick = useCallback((latlng: LatLng) => {
+    setSelectedPoint(latlng);
+
+    const clickedPoint = point([latlng.lng, latlng.lat]);
+    const fc = places as FeatureCollection<Point>;
+
+    const nearest = nearestPoint(clickedPoint, fc);
+
+    const dist = distance(clickedPoint, nearest, {
+      units: 'kilometers',
+    });
+
+    setNearestFeature(nearest);
+    setDistanceKm(dist);
+  }, []);
 
   return (
     <div style={{ height: '100vh', width: '100vw' }}>
       <MapContainer
-        center={[10.7769, 106.7009]} // Ho Chi Minh City
+        center={[10.7769, 106.7009]}
         zoom={13}
         style={{ height: '100%', width: '100%' }}
       >
@@ -38,50 +65,60 @@ export default function App() {
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
 
-        <ClickHandler onClick={setSelectedPoint} />
+        <ClickHandler onClick={handleMapClick} />
 
+        {/* GeoJSON POIs */}
         <GeoJSON
           data={places as FeatureCollection}
           onEachFeature={(feature, layer) => {
-            const name = feature.properties?.name;
-            const category = feature.properties?.category;
-
+            const { name, category } = feature.properties || {};
             if (name) {
               layer.bindPopup(`<strong>${name}</strong><br/>Category: ${category}`);
             }
           }}
         />
 
+        {/* Clicked point */}
         {selectedPoint && (
+          <Marker position={[selectedPoint.lat, selectedPoint.lng]} icon={markerIcon}>
+            <Popup>
+              <strong>Clicked point</strong>
+              <br />
+              {selectedPoint.lat.toFixed(6)}, {selectedPoint.lng.toFixed(6)}
+            </Popup>
+          </Marker>
+        )}
+
+        {/* Nearest POI */}
+        {nearestFeature && (
           <Marker
-            position={[selectedPoint.lat, selectedPoint.lng]}
-            icon={L.icon({
-              iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-              shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-              iconAnchor: [12, 41],
-            })}
+            position={[
+              nearestFeature.geometry.coordinates[1],
+              nearestFeature.geometry.coordinates[0],
+            ]}
+            icon={markerIcon}
           >
             <Popup>
-              <div>
-                <strong>Selected point</strong>
-                <br />
-                Lat: {selectedPoint.lat.toFixed(6)}
-                <br />
-                Lng: {selectedPoint.lng.toFixed(6)}
-              </div>
+              <strong>Nearest place</strong>
+              <br />
+              {nearestFeature.properties?.name}
+              <br />
+              {distanceKm?.toFixed(2)} km away
             </Popup>
           </Marker>
         )}
       </MapContainer>
 
-      {/* Simple HUD */}
+      {/* HUD */}
       <div className="map-hud">
-        {selectedPoint ? (
+        {distanceKm ? (
           <>
-            📍 {selectedPoint.lat.toFixed(5)}, {selectedPoint.lng.toFixed(5)}
+            📍 Nearest: <b>{nearestFeature?.properties?.name}</b>
+            <br />
+            📏 {distanceKm.toFixed(2)} km
           </>
         ) : (
-          'Click on map to select a point'
+          'Click on map to find nearest place'
         )}
       </div>
     </div>
