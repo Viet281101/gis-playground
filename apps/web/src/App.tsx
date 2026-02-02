@@ -9,10 +9,20 @@ import { point } from '@turf/helpers';
 import type { Feature, FeatureCollection, Point } from 'geojson';
 import places from './data/places.json';
 
+import {
+  DrawingControls,
+  DrawingLayer,
+  CompletedDrawings,
+  MeasurementPanel,
+  type Drawing,
+} from './components/Drawing';
+
 type LatLng = {
   lat: number;
   lng: number;
 };
+
+type DrawMode = 'polygon' | 'polyline' | null;
 
 const markerIcon = L.icon({
   iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
@@ -32,29 +42,82 @@ const ClickHandler = ({ onClick }: { onClick: (latlng: LatLng) => void }) => {
   return null;
 };
 
+// Generate random colors for drawings
+const getRandomColor = () => {
+  const colors = ['#e74c3c', '#3498db', '#2ecc71', '#f39c12', '#9b59b6', '#1abc9c'];
+  return colors[Math.floor(Math.random() * colors.length)];
+};
+
 export default function App() {
   const [selectedPoint, setSelectedPoint] = useState<LatLng | null>(null);
   const [nearestFeature, setNearestFeature] = useState<Feature<Point> | null>(null);
   const [distanceKm, setDistanceKm] = useState<number | null>(null);
 
-  const handleMapClick = useCallback((latlng: LatLng) => {
-    setSelectedPoint(latlng);
+  // Drawing state
+  const [drawMode, setDrawMode] = useState<DrawMode>(null);
+  const [currentPoints, setCurrentPoints] = useState<LatLng[]>([]);
+  const [completedDrawings, setCompletedDrawings] = useState<Drawing[]>([]);
 
-    const clickedPoint = point([latlng.lng, latlng.lat]);
-    const fc = places as FeatureCollection<Point>;
+  const handleMapClick = useCallback(
+    (latlng: LatLng) => {
+      // Only handle nearest point search if not in drawing mode
+      if (drawMode) return;
 
-    const nearest = nearestPoint(clickedPoint, fc);
+      setSelectedPoint(latlng);
 
-    const dist = distance(clickedPoint, nearest, {
-      units: 'kilometers',
-    });
+      const clickedPoint = point([latlng.lng, latlng.lat]);
+      const fc = places as FeatureCollection<Point>;
 
-    setNearestFeature(nearest);
-    setDistanceKm(dist);
+      const nearest = nearestPoint(clickedPoint, fc);
+
+      const dist = distance(clickedPoint, nearest, {
+        units: 'kilometers',
+      });
+
+      setNearestFeature(nearest);
+      setDistanceKm(dist);
+    },
+    [drawMode]
+  );
+
+  const handlePointAdd = useCallback((point: LatLng) => {
+    setCurrentPoints(prev => [...prev, point]);
+  }, []);
+
+  const handleDrawingComplete = useCallback(() => {
+    if (currentPoints.length < 2) return;
+
+    const newDrawing: Drawing = {
+      id: Date.now().toString(),
+      type: drawMode as 'polygon' | 'polyline',
+      points: currentPoints,
+      color: getRandomColor(),
+    };
+
+    setCompletedDrawings(prev => [...prev, newDrawing]);
+    setCurrentPoints([]);
+    setDrawMode(null);
+  }, [currentPoints, drawMode]);
+
+  const handleClearDrawings = useCallback(() => {
+    setCompletedDrawings([]);
+    setCurrentPoints([]);
+    setDrawMode(null);
   }, []);
 
   return (
     <div style={{ height: '100vh', width: '100vw' }}>
+      {/* Drawing Controls */}
+      <DrawingControls
+        drawMode={drawMode}
+        onDrawModeChange={setDrawMode}
+        onClear={handleClearDrawings}
+        hasDrawings={completedDrawings.length > 0}
+      />
+
+      {/* Measurement Panel */}
+      <MeasurementPanel drawings={completedDrawings} />
+
       <MapContainer
         center={[10.7769, 106.7009]}
         zoom={13}
@@ -65,7 +128,19 @@ export default function App() {
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
 
-        <ClickHandler onClick={handleMapClick} />
+        {/* Only enable click handler when not in drawing mode */}
+        {!drawMode && <ClickHandler onClick={handleMapClick} />}
+
+        {/* Drawing Layer */}
+        <DrawingLayer
+          drawMode={drawMode}
+          currentPoints={currentPoints}
+          onPointAdd={handlePointAdd}
+          onDrawingComplete={handleDrawingComplete}
+        />
+
+        {/* Completed Drawings */}
+        <CompletedDrawings drawings={completedDrawings} />
 
         {/* GeoJSON POIs */}
         <GeoJSON
@@ -78,8 +153,8 @@ export default function App() {
           }}
         />
 
-        {/* Clicked point */}
-        {selectedPoint && (
+        {/* Clicked point (only show when not drawing) */}
+        {selectedPoint && !drawMode && (
           <Marker position={[selectedPoint.lat, selectedPoint.lng]} icon={markerIcon}>
             <Popup>
               <strong>Clicked point</strong>
@@ -90,7 +165,7 @@ export default function App() {
         )}
 
         {/* Nearest POI */}
-        {nearestFeature && (
+        {nearestFeature && !drawMode && (
           <Marker
             position={[
               nearestFeature.geometry.coordinates[1],
@@ -109,18 +184,20 @@ export default function App() {
         )}
       </MapContainer>
 
-      {/* HUD */}
-      <div className="map-hud">
-        {distanceKm ? (
-          <>
-            📍 Nearest: <b>{nearestFeature?.properties?.name}</b>
-            <br />
-            📏 {distanceKm.toFixed(2)} km
-          </>
-        ) : (
-          'Click on map to find nearest place'
-        )}
-      </div>
+      {/* HUD - only show when not drawing */}
+      {!drawMode && (
+        <div className="map-hud">
+          {distanceKm ? (
+            <>
+              📍 Nearest: <b>{nearestFeature?.properties?.name}</b>
+              <br />
+              📏 {distanceKm.toFixed(2)} km
+            </>
+          ) : (
+            'Click on map to find nearest place'
+          )}
+        </div>
+      )}
     </div>
   );
 }
